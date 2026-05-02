@@ -1,0 +1,59 @@
+version: "3.9"
+
+services:
+  nginx:
+    build:
+      context: ./nginx
+    ports:
+      - "80:80"
+    networks:
+      - finance
+    restart: always
+    depends_on:
+      - backend
+
+  db:
+    image: postgres:15
+    container_name: db
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${NAME}
+      POSTGRES_USER: ${USER}
+      POSTGRES_PASSWORD: ${PASSWORD}
+    restart: always
+    networks:
+      - finance
+    ports:
+      - "5432:5432"
+    volumes:
+      - mypostgres-data1:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${USER} -d ${NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  backend:
+    image: pratul74/finance-backend
+    container_name: backend
+    env_file:
+      - .env
+    restart: always
+    command: sh-c "python manage.py migrate && gunicorn --bind 0.0.0.0:8000 config:wsgi:application"
+    ports:
+      - "8000:8000"
+    networks:
+      - finance
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  mypostgres-data1:
+networks:
+  finance:
+    
+
+
