@@ -9,18 +9,28 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 
-const schema = z.object({
-  email: z.string().email("Invalid email address"),
-  password: z.string().min(1, "Password is required"),
-});
+const schema = z
+  .object({
+    name: z.string().min(2, "Name must be at least 2 characters"),
+    email: z.string().email("Invalid email address"),
+    password: z
+      .string()
+      .min(8, "Password must be at least 8 characters")
+      .regex(/[A-Z]/, "Must contain an uppercase letter")
+      .regex(/[0-9]/, "Must contain a number"),
+    confirm_password: z.string(),
+  })
+  .refine((d) => d.password === d.confirm_password, {
+    message: "Passwords do not match",
+    path: ["confirm_password"],
+  });
 
 type FormData = z.infer<typeof schema>;
 
-export default function LoginPage() {
+export default function RegisterPage() {
   const router = useRouter();
   const { setUser } = useAuth();
   const [serverError, setServerError] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
 
   const {
     register,
@@ -31,14 +41,24 @@ export default function LoginPage() {
   const onSubmit = async (data: FormData) => {
     setServerError("");
     try {
-      const res = await api.post("/auth/login/", data);
-      localStorage.setItem("access", res.data.access);
-      localStorage.setItem("refresh", res.data.refresh);
-      setUser(res.data.user);
+      await api.post("/auth/register/", data);
+      // Auto-login after registration
+      const loginRes = await api.post("/auth/login/", {
+        email: data.email,
+        password: data.password,
+      });
+      localStorage.setItem("access", loginRes.data.access);
+      localStorage.setItem("refresh", loginRes.data.refresh);
+      setUser(loginRes.data.user);
       router.push("/dashboard");
     } catch (err: any) {
-      const detail = err?.response?.data?.detail;
-      setServerError(detail ?? "Invalid email or password.");
+      const detail = err?.response?.data;
+      if (typeof detail === "object") {
+        const msg = Object.values(detail).flat().join(" ");
+        setServerError(msg);
+      } else {
+        setServerError("Something went wrong. Please try again.");
+      }
     }
   };
 
@@ -51,8 +71,8 @@ export default function LoginPage() {
 
       <div className="auth-card animate-fade-up">
         <div className="auth-header">
-          <h1>Welcome back</h1>
-          <p>Sign in to your account</p>
+          <h1>Create account</h1>
+          <p>Start tracking your finances</p>
         </div>
 
         {serverError && (
@@ -60,60 +80,42 @@ export default function LoginPage() {
         )}
 
         <form onSubmit={handleSubmit(onSubmit)} noValidate>
-          <div className="field">
-            <label className="label" htmlFor="email">Email</label>
-            <input
-              id="email"
-              type="email"
-              className={`input ${errors.email ? "input-error" : ""}`}
-              placeholder="you@example.com"
-              autoComplete="email"
-              {...register("email")}
-            />
-            {errors.email && (
-              <span className="field-error">{errors.email.message}</span>
-            )}
-          </div>
-
-          <div className="field">
-            <label className="label" htmlFor="password">Password</label>
-            <div className="input-wrap">
+          {(
+            [
+              { id: "name", label: "Full Name", type: "text", placeholder: "Jane Doe", autocomplete: "name" },
+              { id: "email", label: "Email", type: "email", placeholder: "you@example.com", autocomplete: "email" },
+              { id: "password", label: "Password", type: "password", placeholder: "Min. 8 characters", autocomplete: "new-password" },
+              { id: "confirm_password", label: "Confirm Password", type: "password", placeholder: "Repeat password", autocomplete: "new-password" },
+            ] as const
+          ).map(({ id, label, type, placeholder, autocomplete }) => (
+            <div key={id} className="field">
+              <label className="label" htmlFor={id}>{label}</label>
               <input
-                id="password"
-                type={showPassword ? "text" : "password"}
-                className={`input ${errors.password ? "input-error" : ""}`}
-                placeholder="••••••••"
-                autoComplete="current-password"
-                {...register("password")}
+                id={id}
+                type={type}
+                className={`input ${errors[id] ? "input-error" : ""}`}
+                placeholder={placeholder}
+                autoComplete={autocomplete}
+                {...register(id)}
               />
-              <button
-                type="button"
-                className="input-icon"
-                onClick={() => setShowPassword((p) => !p)}
-                aria-label={showPassword ? "Hide password" : "Show password"}
-              >
-                {showPassword ? "🙈" : "👁"}
-              </button>
+              {errors[id] && (
+                <span className="field-error">{errors[id]?.message}</span>
+              )}
             </div>
-            {errors.password && (
-              <span className="field-error">{errors.password.message}</span>
-            )}
-          </div>
+          ))}
 
           <button
             type="submit"
             className="btn btn-primary auth-submit"
             disabled={isSubmitting}
           >
-            {isSubmitting ? <span className="spinner" /> : "Sign in"}
+            {isSubmitting ? <span className="spinner" /> : "Create account"}
           </button>
         </form>
 
         <p className="auth-footer">
-          Don't have an account?{" "}
-          <Link href="/register" className="auth-link">
-            Create one
-          </Link>
+          Already have an account?{" "}
+          <Link href="/login" className="auth-link">Sign in</Link>
         </p>
       </div>
 
@@ -139,13 +141,9 @@ export default function LoginPage() {
           font-size: 1.1rem;
           font-weight: 700;
           letter-spacing: -0.02em;
-          color: var(--text);
           margin-bottom: 2rem;
         }
-        .auth-logo {
-          font-size: 1.5rem;
-          color: var(--accent);
-        }
+        .auth-logo { font-size: 1.5rem; color: var(--accent); }
         .auth-card {
           background: var(--surface);
           border: 1px solid var(--border);
@@ -163,7 +161,6 @@ export default function LoginPage() {
           margin-bottom: 0.25rem;
         }
         .auth-header p { color: var(--text-muted); font-size: 0.9rem; }
-
         .auth-error {
           background: var(--red-dim);
           border: 1px solid rgba(239, 68, 68, 0.2);
@@ -173,54 +170,20 @@ export default function LoginPage() {
           font-size: 0.875rem;
           margin-bottom: 1.25rem;
         }
-
         .field { margin-bottom: 1.25rem; }
-        .input-wrap { position: relative; }
-        .input-wrap .input { padding-right: 2.5rem; }
-        .input-icon {
-          position: absolute;
-          right: 0.75rem;
-          top: 50%;
-          transform: translateY(-50%);
-          background: none;
-          border: none;
-          cursor: pointer;
-          font-size: 0.9rem;
-          color: var(--text-muted);
-          padding: 0;
-        }
         .input-error { border-color: var(--red) !important; }
-        .field-error {
-          display: block;
-          margin-top: 0.375rem;
-          font-size: 0.78rem;
-          color: var(--red);
-        }
-
-        .auth-submit {
-          width: 100%;
-          padding: 0.75rem;
-          margin-top: 0.5rem;
-          font-size: 0.95rem;
-        }
+        .field-error { display: block; margin-top: 0.375rem; font-size: 0.78rem; color: var(--red); }
+        .auth-submit { width: 100%; padding: 0.75rem; margin-top: 0.5rem; font-size: 0.95rem; }
         .auth-submit:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
-
         .spinner {
-          width: 16px;
-          height: 16px;
+          width: 16px; height: 16px;
           border: 2px solid rgba(12, 13, 15, 0.3);
           border-top-color: #0c0d0f;
           border-radius: 50%;
           animation: spin 0.7s linear infinite;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
-
-        .auth-footer {
-          margin-top: 1.5rem;
-          text-align: center;
-          font-size: 0.875rem;
-          color: var(--text-muted);
-        }
+        .auth-footer { margin-top: 1.5rem; text-align: center; font-size: 0.875rem; color: var(--text-muted); }
         .auth-link { color: var(--accent); font-weight: 500; text-decoration: none; }
         .auth-link:hover { text-decoration: underline; }
       `}</style>
